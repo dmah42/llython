@@ -1,1 +1,4 @@
 *.pyc
+build/
+dist/
+llython.egg-info/

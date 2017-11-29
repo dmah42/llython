@@ -27,28 +27,16 @@ import argparse
 import ast
 from llvmlite import ir
 
-parser = argparse.ArgumentParser(description='Convert python to LLVM IR')
-parser.add_argument('-i', '--input', type=str, nargs=1, required=True,
-    help='the python script to convert')
-
-args = parser.parse_args()
-filename = args.input[0]
-
-with open(filename) as f:
-  src = f.read()
-
-tree = ast.parse(src, filename)
-
-print(ast.dump(tree))
 
 class IRVisitor(ast.NodeVisitor):
 
-  def __init__(self):
-    self.blocks = []
+  def __init__(self, filename):
+    self._filename = filename
+    self._blocks = []
     super(IRVisitor, self).__init__()
 
   def _cur_block(self):
-    return self.blocks[-1]
+    return self._blocks[-1]
 
   def generic_visit(self, node):
     i = 0
@@ -56,17 +44,17 @@ class IRVisitor(ast.NodeVisitor):
     ast.NodeVisitor.generic_visit(self, node)
 
   def visit_Module(self, node):
-    self.module = ir.Module(name=filename)
+    self.module = ir.Module(name=self._filename)
     # Map variable names to pointers
     self.named_values = {}
 
     # Top-level block
     func = ir.Function(self.module, ir.FunctionType(ir.VoidType(), []), name='module_fn')
-    self.blocks.append(func.append_basic_block(name='top-level'))
+    self._blocks.append(func.append_basic_block(name='top-level'))
 
     ast.NodeVisitor.generic_visit(self, node)
 
-    self.blocks.pop()
+    self._blocks.pop()
 
   def visit_FunctionDef(self, node):
     name = node.name
@@ -85,7 +73,7 @@ class IRVisitor(ast.NodeVisitor):
       a.name = args[idx]
       idx+=1
 
-    self.blocks.append(func.append_basic_block(name='entry'))
+    self._blocks.append(func.append_basic_block(name='entry'))
     builder = ir.IRBuilder(self._cur_block())
 
     # TODO: stack of named values
@@ -105,7 +93,7 @@ class IRVisitor(ast.NodeVisitor):
     if self.ret:
       builder.ret(self.ret)
 
-    self.blocks.pop()
+    self._blocks.pop()
 
   def visit_Assign(self, node):
     print 'Assign: ' + ast.dump(node)
@@ -153,6 +141,26 @@ class IRVisitor(ast.NodeVisitor):
         self.named_values[n] = var
       builder.store(target_values[n], self.named_values[n])
 
-v = IRVisitor()
-v.visit(tree)
-print(v.module)
+
+def main():
+  parser = argparse.ArgumentParser(description='Convert python to LLVM IR')
+  parser.add_argument('-i', '--input', type=str, nargs=1, required=True,
+      help='the python script to convert')
+
+  args = parser.parse_args()
+  filename = args.input[0]
+
+  with open(filename) as f:
+    src = f.read()
+
+  tree = ast.parse(src, filename)
+
+  print(ast.dump(tree))
+
+  v = IRVisitor(filename)
+  v.visit(tree)
+  print(v.module)
+
+
+if __name__ == "__main__":
+  main()
